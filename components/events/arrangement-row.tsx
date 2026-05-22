@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { Pencil } from "lucide-react";
-import { calcArrangementPricing, fmtCurrency, fmtPct } from "@/lib/pricing";
+import { calcArrangementPricing, fmtCurrency } from "@/lib/pricing";
 
 type RecipeItem = {
   id: string;
@@ -45,15 +45,6 @@ interface ArrangementRowProps {
   onEdit: () => void;
 }
 
-const driftDot: Record<
-  "green" | "yellow" | "red" | "none",
-  { color: string; title: (pct: string) => string }
-> = {
-  green:  { color: "bg-emerald-500", title: () => "On target" },
-  yellow: { color: "bg-amber-400",   title: (p) => `~${p} from suggested` },
-  red:    { color: "bg-red-500",     title: (p) => `${p} from suggested — check recipe` },
-  none:   { color: "bg-transparent", title: () => "No price set" },
-};
 
 export function ArrangementRow({
   arrangement,
@@ -85,8 +76,6 @@ export function ArrangementRow({
     hard_good_markup: markupSettings.hard_good_markup,
   });
 
-  const dot = driftDot[pricing.drift_level];
-  const pctLabel = pricing.drift_pct ? fmtPct(pricing.drift_pct) : "";
   const isRepurposed = arrangement.repurposed_from_arrangement_ids.length > 0;
 
   return (
@@ -132,15 +121,9 @@ export function ArrangementRow({
           : fmtCurrency(pricing.total_billed_retail)}
       </td>
 
-      {/* Drift dot + edit icon */}
+      {/* Edit icon */}
       <td className="px-4 py-3 w-16">
-        <div className="flex items-center justify-end gap-2">
-          {pricing.drift_level !== "none" && (
-            <span
-              title={dot.title(pctLabel)}
-              className={`inline-block h-2.5 w-2.5 rounded-full ${dot.color} shrink-0`}
-            />
-          )}
+        <div className="flex items-center justify-end">
           <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
       </td>

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Decimal from "decimal.js";
 import {
   getEvent,
   getEventSections,
@@ -8,9 +9,9 @@ import {
   getFlowers,
   getMarkupSettings,
 } from "@/lib/data";
+import { calcArrangementPricing, fmtCurrency } from "@/lib/pricing";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { PaletteStrip } from "@/components/events/palette-strip";
 import { ArrangementsTab } from "@/components/events/arrangements-tab";
 
 const statusLabel: Record<string, string> = {
@@ -108,11 +109,50 @@ export default async function EventDetailPage({ params }: PageProps) {
     hard_good_markup: markupSettings.hard_good_markup,
   };
 
+  // --- Event totals ---
+  const arrangementSubtotal = arrangementList.reduce((sum, a) => {
+    const lines = recipeItemList
+      .filter((r) => r.arrangement_id === a.id)
+      .map((r) => ({
+        qty_per_arrangement: r.qty_per_arrangement,
+        stem_price_override: r.stem_price_override,
+        master_stem_price: flowerList.find((f) => f.id === r.master_flower_id)?.stem_price ?? null,
+      }));
+    return sum.plus(
+      calcArrangementPricing({
+        quantity: a.quantity,
+        target_retail_price_per_unit: a.target_retail_price_per_unit,
+        recipe_lines: lines,
+        flower_markup: markupData.flower_markup,
+        hard_good_markup: markupData.hard_good_markup,
+      }).total_billed_retail
+    );
+  }, new Decimal(0));
+
+  const laborFee = arrangementSubtotal.times(new Decimal(markupSettings.labor_markup));
+  const cleanupFee = new Decimal(event.cleanup_fee ?? "0");
+  const serviceSubtotal = laborFee.plus(cleanupFee);
+  const subtotal = arrangementSubtotal.plus(serviceSubtotal);
+  const taxRate = new Decimal(event.tax_rate ?? "0");
+  const tax = subtotal.times(taxRate);
+  const grandTotal = subtotal.plus(tax);
+  const taxPct = taxRate.times(100).toDecimalPlaces(3).toString().replace(/\.?0+$/, "");
+
+  const eventServices = {
+    laborFee: fmtCurrency(laborFee),
+    laborFeeOverride: event.labor_fee_override ?? null,
+    laborFeeCalculated: fmtCurrency(arrangementSubtotal.times(new Decimal(markupSettings.labor_markup))),
+    cleanupFee: event.cleanup_fee ?? "0",
+    cleanupFeeDisplay: fmtCurrency(cleanupFee),
+    hasCleanup: cleanupFee.gt(0),
+    serviceSubtotal: fmtCurrency(serviceSubtotal),
+  };
+
   return (
     <div className="flex flex-col min-h-full">
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <header className="px-8 pt-7 pb-4 border-b bg-background">
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
             <h1 className="font-display text-3xl font-light tracking-tight truncate">
               {event.name}
@@ -135,12 +175,25 @@ export default async function EventDetailPage({ params }: PageProps) {
               </Badge>
             </div>
           </div>
+
+          {/* Event totals summary */}
+          <div className="flex items-center gap-6 shrink-0 pt-1">
+            <div className="text-right">
+              <div className="text-xs text-muted-foreground">Subtotal</div>
+              <div className="text-sm font-semibold tabular-nums">{fmtCurrency(subtotal)}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs text-muted-foreground">Tax ({taxPct}%)</div>
+              <div className="text-sm font-semibold tabular-nums">{fmtCurrency(tax)}</div>
+            </div>
+            <div className="text-right border-l pl-6">
+              <div className="text-xs text-muted-foreground">Grand Total</div>
+              <div className="text-lg font-bold tabular-nums">{fmtCurrency(grandTotal)}</div>
+            </div>
+          </div>
         </div>
 
-        {/* Palette strip */}
-        <div className="mt-3">
-          <PaletteStrip eventId={id} colors={paletteList} />
-        </div>
+
       </header>
 
       {/* ── Tabs ──────────────────────────────────────────────────────────── */}
@@ -167,6 +220,7 @@ export default async function EventDetailPage({ params }: PageProps) {
             flowers={flowerList}
             paletteColors={paletteList}
             markupSettings={markupData}
+            eventServices={eventServices}
           />
         </TabsContent>
 

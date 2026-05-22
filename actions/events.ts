@@ -138,3 +138,38 @@ export async function updateEventStatus(id: string, status: string) {
     : "draft";
   return updateEvent(id, { status: validStatus });
 }
+
+export async function updateEventServiceFees(
+  eventId: string,
+  fees: { cleanup_fee?: string; labor_fee_override?: string | null }
+) {
+  if (!process.env.DATABASE_URL) {
+    const { readStore, writeStore } = await import("@/lib/local-store");
+    const store = readStore();
+    store.eventFeeOverrides = store.eventFeeOverrides ?? {};
+    store.eventFeeOverrides[eventId] = {
+      ...store.eventFeeOverrides[eventId],
+      ...fees,
+    };
+    writeStore(store);
+    revalidatePath(`/events/${eventId}`);
+    return { success: true };
+  }
+
+  try {
+    const { db } = await import("@/lib/db");
+    const { events } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+
+    const updateData: Record<string, unknown> = { updated_at: new Date() };
+    if (fees.cleanup_fee !== undefined) updateData.cleanup_fee = fees.cleanup_fee;
+    if ("labor_fee_override" in fees) updateData.labor_fee_override = fees.labor_fee_override;
+
+    await db.update(events).set(updateData).where(eq(events.id, eventId));
+    revalidatePath(`/events/${eventId}`);
+    return { success: true };
+  } catch (err) {
+    console.error(err);
+    return { error: "Failed to update service fees." };
+  }
+}

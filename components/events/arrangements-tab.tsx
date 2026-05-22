@@ -11,6 +11,7 @@ import { ArrangementRow } from "./arrangement-row";
 import { RecipeEditorSheet } from "./recipe-editor-sheet";
 import { createArrangement } from "@/actions/arrangements";
 import { createSection } from "@/actions/sections";
+import { updateEventServiceFees } from "@/actions/events";
 import { calcArrangementPricing, fmtCurrency } from "@/lib/pricing";
 
 type RecipeItem = {
@@ -67,6 +68,15 @@ interface ArrangementsTabProps {
   flowers: Flower[];
   paletteColors: PaletteColor[];
   markupSettings: { flower_markup: string; hard_good_markup: string };
+  eventServices: {
+    laborFee: string;
+    laborFeeOverride: string | null;
+    laborFeeCalculated: string;
+    cleanupFee: string;
+    cleanupFeeDisplay: string;
+    hasCleanup: boolean;
+    serviceSubtotal: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -167,9 +177,6 @@ function SectionGroup({
               ? <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
               : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
             {label}
-            <span className="font-normal text-muted-foreground ml-0.5">
-              ({arrangements.length})
-            </span>
           </button>
           {!subtotal.isZero() && (
             <span className="tabular-nums text-xs font-semibold text-muted-foreground">
@@ -225,6 +232,95 @@ function SectionGroup({
 }
 
 // ---------------------------------------------------------------------------
+// Services card
+// ---------------------------------------------------------------------------
+
+function ServicesCard({
+  eventId,
+  eventServices,
+}: {
+  eventId: string;
+  eventServices: ArrangementsTabProps["eventServices"];
+}) {
+  const [laborInput, setLaborInput] = React.useState(
+    eventServices.laborFeeOverride != null
+      ? eventServices.laborFeeOverride
+      : eventServices.laborFeeCalculated.replace("$", "")
+  );
+  const [cleanupInput, setCleanupInput] = React.useState(eventServices.cleanupFee);
+  const [isPending, startTransition] = useTransition();
+
+  function saveLabor() {
+    const val = parseFloat(laborInput);
+    const calculated = parseFloat(eventServices.laborFeeCalculated.replace("$", ""));
+    const override = isNaN(val) ? null : Math.abs(val).toFixed(2);
+    const isDefault = override !== null && Math.abs(parseFloat(override) - calculated) < 0.005;
+    startTransition(async () => {
+      await updateEventServiceFees(eventId, { labor_fee_override: isDefault ? null : override });
+    });
+  }
+
+  function saveCleanup() {
+    const val = parseFloat(cleanupInput);
+    const fee = isNaN(val) ? "0.00" : Math.abs(val).toFixed(2);
+    setCleanupInput(fee);
+    startTransition(async () => {
+      await updateEventServiceFees(eventId, { cleanup_fee: fee });
+    });
+  }
+
+  const laborDisplay = `$${parseFloat(laborInput || "0").toFixed(2)}`;
+  const cleanupDisplay = `$${parseFloat(cleanupInput || "0").toFixed(2)}`;
+  const showCleanup = parseFloat(cleanupInput || "0") > 0;
+
+  return (
+    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+      <div className="flex items-center justify-between px-4 py-3 bg-muted/40 border-b">
+        <span className="text-sm font-semibold">Services</span>
+        <span className="text-xs font-semibold text-muted-foreground tabular-nums">
+          {eventServices.serviceSubtotal}
+        </span>
+      </div>
+      <table className="w-full text-sm">
+        <tbody>
+          <tr className="border-b">
+            <td className="px-4 py-2 text-muted-foreground w-full">Labor & Design</td>
+            <td className="px-4 py-2 text-right">
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={laborInput}
+                onChange={(e) => setLaborInput(e.target.value)}
+                onBlur={saveLabor}
+                disabled={isPending}
+                className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm text-right outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 tabular-nums disabled:opacity-50"
+                title={`Default: ${eventServices.laborFeeCalculated}`}
+              />
+            </td>
+          </tr>
+          <tr>
+            <td className="px-4 py-2 text-muted-foreground">Cleanup Fee</td>
+            <td className="px-4 py-2 text-right">
+              <input
+                type="number"
+                min={0}
+                step={0.01}
+                value={cleanupInput}
+                onChange={(e) => setCleanupInput(e.target.value)}
+                onBlur={saveCleanup}
+                disabled={isPending}
+                className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm text-right outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 tabular-nums disabled:opacity-50"
+              />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main tab
 // ---------------------------------------------------------------------------
 
@@ -236,6 +332,7 @@ export function ArrangementsTab({
   flowers,
   paletteColors,
   markupSettings,
+  eventServices,
 }: ArrangementsTabProps) {
   const [addingSectionName, setAddingSectionName] = React.useState(false);
   const [newSectionName, setNewSectionName] = React.useState("");
@@ -288,6 +385,8 @@ export function ArrangementsTab({
           markupSettings={markupSettings}
         />
       )}
+
+      <ServicesCard eventId={eventId} eventServices={eventServices} />
 
       {/* Add section */}
       <div>

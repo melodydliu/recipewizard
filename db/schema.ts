@@ -132,6 +132,7 @@ export const events = pgTable("events", {
   cleanup_fee: numeric("cleanup_fee", { precision: 10, scale: 2 })
     .notNull()
     .default("200.00"),
+  labor_fee_override: numeric("labor_fee_override", { precision: 10, scale: 2 }),
   status: eventStatusEnum("status").notNull().default("draft"),
   notes: text("notes"),
   inspiration_notes: text("inspiration_notes"),

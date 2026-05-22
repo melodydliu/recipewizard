@@ -38,8 +38,8 @@ export function Combobox({
   const containerRef = React.useRef<HTMLDivElement>(null);
 
   // Display label for current value
-  const selectedLabel =
-    options.find((o) => o.value === value)?.label ?? value;
+  const selectedOption = options.find((o) => o.value === value);
+  const selectedLabel = selectedOption?.label ?? value;
 
   // Close on outside click
   React.useEffect(() => {
@@ -85,28 +85,34 @@ export function Combobox({
 
   return (
     <div ref={containerRef} className={cn("relative", className)}>
-      {/* Trigger input */}
-      <input
-        type="text"
-        readOnly
-        disabled={disabled}
-        value={open ? "" : selectedLabel}
-        placeholder={open ? "" : placeholder}
-        onClick={() => {
-          if (!disabled) {
+      {/* Trigger */}
+      <div
+        role="combobox"
+        aria-expanded={open}
+        tabIndex={disabled ? -1 : 0}
+        onClick={() => { if (!disabled) { setOpen(true); setSearch(""); } }}
+        onKeyDown={(e) => {
+          if ((e.key === "Enter" || e.key === " ") && !disabled) {
             setOpen(true);
             setSearch("");
           }
         }}
         className={cn(
-          "h-8 w-full min-w-0 cursor-pointer rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none",
-          "placeholder:text-muted-foreground",
+          "h-8 w-full min-w-0 cursor-pointer select-none rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none",
+          "flex items-center gap-1.5",
           "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
-          "disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50",
-          open && "border-ring ring-3 ring-ring/50"
+          disabled && "pointer-events-none cursor-not-allowed bg-input/50 opacity-50",
+          open && "border-ring ring-3 ring-ring/50",
+          !selectedLabel && !open && "text-muted-foreground"
         )}
-        onChange={() => {}}
-      />
+      >
+        {!open && selectedOption?.prefix && (
+          <span className="shrink-0">{selectedOption.prefix}</span>
+        )}
+        <span>
+          {open ? "" : (selectedLabel || placeholder)}
+        </span>
+      </div>
 
       {/* Dropdown */}
       {open && (
@@ -127,7 +133,7 @@ export function Combobox({
                 }
               }}
             />
-            <Command.List className="max-h-[220px] overflow-y-auto p-1">
+            <Command.List className="max-h-[280px] overflow-y-auto p-1">
               {filteredOptions.length === 0 && !showFreeText && (
                 <Command.Empty className="py-2 px-2.5 text-sm text-muted-foreground">
                   {emptyMessage}

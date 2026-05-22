@@ -12,6 +12,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+  TooltipProvider,
+} from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
-import { calcArrangementPricing, fmtCurrency } from "@/lib/pricing";
+import { calcArrangementPricing, fmtCurrency, fmtPct } from "@/lib/pricing";
 import { updateArrangement } from "@/actions/arrangements";
 import {
   upsertRecipeItem,
@@ -339,7 +345,7 @@ export function RecipeEditorSheet({
             <div className="flex-1">
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Item name</label>
               <input
-                className="font-display text-xl font-medium w-full rounded-md border border-input bg-background px-3 py-1.5 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
+                className="text-xl font-medium w-full rounded-md border border-input bg-background px-3 py-1.5 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50"
                 value={arrName}
                 onChange={(e) => setArrName(e.target.value)}
                 onBlur={() => {
@@ -385,7 +391,9 @@ export function RecipeEditorSheet({
                 }}
               >
                 <SelectTrigger size="sm" className="w-36">
-                  <SelectValue placeholder="Uncategorized" />
+                  <SelectValue placeholder="Uncategorized">
+                    {sectionId ? sections.find((s) => s.id === sectionId)?.name : undefined}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="">Uncategorized</SelectItem>
@@ -399,40 +407,6 @@ export function RecipeEditorSheet({
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 mt-2">
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted-foreground">
-                Client notes
-              </label>
-              <Input
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                onBlur={() => {
-                  if (notes !== (arrangement.notes ?? "")) {
-                    saveArrangementField("notes", notes);
-                  }
-                }}
-                placeholder="Visible to client..."
-                className="h-7 text-xs"
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label className="text-xs text-muted-foreground">
-                Internal notes — not shown to client
-              </label>
-              <Input
-                value={internalNotes}
-                onChange={(e) => setInternalNotes(e.target.value)}
-                onBlur={() => {
-                  if (internalNotes !== (arrangement.internal_notes ?? "")) {
-                    saveArrangementField("internal_notes", internalNotes);
-                  }
-                }}
-                placeholder="Internal use only..."
-                className="h-7 text-xs"
-              />
-            </div>
-          </div>
         </DialogHeader>
 
         {/* Scrollable body */}
@@ -682,23 +656,43 @@ export function RecipeEditorSheet({
               {/* Actual retail price — editable */}
               <div className="flex items-center justify-end gap-8 px-4 py-2.5">
                 <label className="text-muted-foreground">Retail price / unit</label>
-                <div className="flex items-center gap-1 w-28">
-                  <span className="text-muted-foreground text-xs">$</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.01}
-                    value={targetRetailPrice}
-                    onChange={(e) => setTargetRetailPrice(e.target.value)}
-                    onBlur={() => {
-                      const val = targetRetailPrice.trim() || null;
-                      if (val !== (arrangement.target_retail_price_per_unit ?? null)) {
-                        saveArrangementField("target_retail_price_per_unit", val as string);
-                      }
-                    }}
-                    placeholder={pricing.suggested_retail_per_unit.toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0)}
-                    className="w-full h-7 rounded-md border border-input bg-background px-2 text-sm text-left outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 tabular-nums"
-                  />
+                <div className="flex items-center gap-2 w-28">
+                  <div className="flex items-center gap-1 flex-1">
+                    <span className="text-muted-foreground text-xs">$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={targetRetailPrice}
+                      onChange={(e) => setTargetRetailPrice(e.target.value)}
+                      onBlur={() => {
+                        const val = targetRetailPrice.trim() || null;
+                        if (val !== (arrangement.target_retail_price_per_unit ?? null)) {
+                          saveArrangementField("target_retail_price_per_unit", val as string);
+                        }
+                      }}
+                      placeholder={pricing.suggested_retail_per_unit.toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toFixed(0)}
+                      className="w-full h-7 rounded-md border border-input bg-background px-2 text-sm text-left outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 tabular-nums"
+                    />
+                  </div>
+                  {pricing.drift_level !== "none" && (() => {
+                    const pctLabel = pricing.drift_pct ? fmtPct(pricing.drift_pct) : "";
+                    const dotColor = pricing.drift_level === "green" ? "bg-emerald-500" : pricing.drift_level === "yellow" ? "bg-amber-400" : "bg-red-500";
+                    const statusLine = pricing.drift_level === "green" ? "On target" : pricing.drift_level === "yellow" ? `~${pctLabel} from suggested` : `${pctLabel} from suggested`;
+                    return (
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger render={<span className={`inline-block h-2.5 w-2.5 rounded-full ${dotColor} shrink-0 cursor-default`} />} />
+                          <TooltipContent side="right" className="max-w-[220px] leading-snug whitespace-normal text-left">
+                            <div className="flex flex-col gap-1">
+                              <span className="font-medium">{statusLine}</span>
+                              <span className="opacity-80">Drift from suggested retail (wholesale × markup). &lt;15% green, 15–30% yellow, &gt;30% red.</span>
+                            </div>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -710,6 +704,38 @@ export function RecipeEditorSheet({
             No recipe for this arrangement.
           </div>
         )}
+
+        {/* Notes */}
+        <div className="px-6 py-4 flex flex-col gap-3 border-t">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Client notes</label>
+            <Input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onBlur={() => {
+                if (notes !== (arrangement.notes ?? "")) {
+                  saveArrangementField("notes", notes);
+                }
+              }}
+              placeholder="Visible to client..."
+              className="h-7 text-xs"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted-foreground">Internal notes — not shown to client</label>
+            <Input
+              value={internalNotes}
+              onChange={(e) => setInternalNotes(e.target.value)}
+              onBlur={() => {
+                if (internalNotes !== (arrangement.internal_notes ?? "")) {
+                  saveArrangementField("internal_notes", internalNotes);
+                }
+              }}
+              placeholder="Internal use only..."
+              className="h-7 text-xs"
+            />
+          </div>
+        </div>
 
         </div>{/* end scrollable body */}
 

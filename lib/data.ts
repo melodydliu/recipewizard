@@ -25,7 +25,13 @@ export async function getEvents() {
 }
 
 export async function getEvent(id: string) {
-  if (useMock) return mock.mockEvents.find((e) => e.id === id) ?? null;
+  if (useMock) {
+    const event = mock.mockEvents.find((e) => e.id === id) ?? null;
+    if (!event) return null;
+    const { readStore } = await import("@/lib/local-store");
+    const overrides = (readStore().eventFeeOverrides ?? {})[id] ?? {};
+    return { ...event, ...overrides };
+  }
 
   const { db } = await import("@/lib/db");
   const { events } = await import("@/db/schema");

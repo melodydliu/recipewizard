@@ -54,10 +54,16 @@ export type LocalRecipeItem = {
   updated_at: string | Date;
 };
 
+export type EventFeeOverride = {
+  cleanup_fee?: string;
+  labor_fee_override?: string | null;
+};
+
 export type Store = {
   eventSections: LocalSection[];
   arrangements: LocalArrangement[];
   recipeItems: LocalRecipeItem[];
+  eventFeeOverrides: Record<string, EventFeeOverride>;
 };
 
 // ---------------------------------------------------------------------------
@@ -69,6 +75,7 @@ function defaultStore(): Store {
     eventSections: mock.mockEventSections.map((s) => ({ ...s })) as LocalSection[],
     arrangements: mock.mockArrangements.map((a) => ({ ...a })) as LocalArrangement[],
     recipeItems: mock.mockRecipeItems.map((r) => ({ ...r })) as LocalRecipeItem[],
+    eventFeeOverrides: {},
   };
 }
 
