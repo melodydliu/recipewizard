@@ -15,17 +15,41 @@ const STORE_PATH = path.join(STORE_DIR, "store.json");
 // Types (match mock-data shapes, dates become strings after JSON roundtrip)
 // ---------------------------------------------------------------------------
 
-export type LocalSection = Omit<(typeof mock.mockEventSections)[number], "created_at" | "updated_at"> & {
+export type LocalSection = {
+  id: string;
+  event_id: string;
+  name: string;
+  sort_order: number;
   created_at: string | Date;
   updated_at: string | Date;
 };
 
-export type LocalArrangement = Omit<(typeof mock.mockArrangements)[number], "created_at" | "updated_at"> & {
+export type LocalArrangement = {
+  id: string;
+  event_id: string;
+  section_id: string | null;
+  name: string;
+  quantity: number;
+  target_retail_price_per_unit: string | null;
+  notes: string | null;
+  internal_notes: string | null;
+  is_no_recipe: boolean;
+  repurposed_from_arrangement_ids: string[];
+  sort_order: number;
   created_at: string | Date;
   updated_at: string | Date;
 };
 
-export type LocalRecipeItem = Omit<(typeof mock.mockRecipeItems)[number], "created_at" | "updated_at"> & {
+export type LocalRecipeItem = {
+  id: string;
+  arrangement_id: string;
+  master_flower_id: string | null;
+  flower_name_override: string | null;
+  palette_color_id: string | null;
+  color_text: string | null;
+  qty_per_arrangement: string;
+  stem_price_override: string | null;
+  sort_order: number;
   created_at: string | Date;
   updated_at: string | Date;
 };
