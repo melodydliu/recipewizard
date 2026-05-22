@@ -1,0 +1,227 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
+const USER_ID = process.env.SINGLE_USER_ID ?? "00000000-0000-0000-0000-000000000001";
+
+const LeiSchema = z.object({
+  name: z.string().min(1, "Name is required"),
+  unit_price: z.string().regex(/^\d+(\.\d{1,2})?$/, "Must be a valid price"),
+  sources: z.string().optional(),
+});
+
+function parseFormData(formData: FormData) {
+  return {
+    name: formData.get("name") as string,
+    unit_price: formData.get("unit_price") as string,
+    sources: (formData.get("sources") as string) ?? "",
+  };
+}
+
+export async function createLei(formData: FormData) {
+  if (!process.env.DATABASE_URL) {
+    return { error: "Connect a database to save changes." };
+  }
+
+  const raw = parseFormData(formData);
+  const parsed = LeiSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { error: parsed.error.errors[0]?.message ?? "Validation failed" };
+  }
+
+  const { name, unit_price, sources } = parsed.data;
+  const sourcesArray = sources
+    ? sources
+        .split("|")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  try {
+    const { db } = await import("@/lib/db");
+    const { masterLeis } = await import("@/db/schema");
+    await db.insert(masterLeis).values({
+      user_id: USER_ID,
+      name,
+      unit_price,
+      sources: sourcesArray,
+    });
+    revalidatePath("/catalog/leis");
+    return { success: true };
+  } catch (err) {
+    console.error(err);
+    return { error: "Failed to create lei." };
+  }
+}
+
+export async function updateLei(id: string, formData: FormData) {
+  if (!process.env.DATABASE_URL) {
+    return { error: "Connect a database to save changes." };
+  }
+
+  const raw = parseFormData(formData);
+  const parsed = LeiSchema.safeParse(raw);
+  if (!parsed.success) {
+    return { error: parsed.error.errors[0]?.message ?? "Validation failed" };
+  }
+
+  const { name, unit_price, sources } = parsed.data;
+  const sourcesArray = sources
+    ? sources
+        .split("|")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
+  try {
+    const { db } = await import("@/lib/db");
+    const { masterLeis } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    await db
+      .update(masterLeis)
+      .set({
+        name,
+        unit_price,
+        sources: sourcesArray,
+        updated_at: new Date(),
+      })
+      .where(eq(masterLeis.id, id));
+    revalidatePath("/catalog/leis");
+    return { success: true };
+  } catch (err) {
+    console.error(err);
+    return { error: "Failed to update lei." };
+  }
+}
+
+export async function archiveLei(id: string) {
+  if (!process.env.DATABASE_URL) {
+    return { error: "Connect a database to save changes." };
+  }
+
+  try {
+    const { db } = await import("@/lib/db");
+    const { masterLeis } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    await db
+      .update(masterLeis)
+      .set({ is_archived: true, updated_at: new Date() })
+      .where(eq(masterLeis.id, id));
+    revalidatePath("/catalog/leis");
+    return { success: true };
+  } catch (err) {
+    console.error(err);
+    return { error: "Failed to archive lei." };
+  }
+}
+
+export async function unarchiveLei(id: string) {
+  if (!process.env.DATABASE_URL) {
+    return { error: "Connect a database to save changes." };
+  }
+
+  try {
+    const { db } = await import("@/lib/db");
+    const { masterLeis } = await import("@/db/schema");
+    const { eq } = await import("drizzle-orm");
+    await db
+      .update(masterLeis)
+      .set({ is_archived: false, updated_at: new Date() })
+      .where(eq(masterLeis.id, id));
+    revalidatePath("/catalog/leis");
+    return { success: true };
+  } catch (err) {
+    console.error(err);
+    return { error: "Failed to unarchive lei." };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// CSV import
+// ---------------------------------------------------------------------------
+
+const CSVRowSchema = z.object({
+  name: z.string().min(1),
+  unit_price: z.string().regex(/^\d+(\.\d{1,2})?$/),
+  sources: z.string().optional(),
+});
+
+export async function importLeisCSV(csvText: string) {
+  if (!process.env.DATABASE_URL) {
+    return { error: "Connect a database to save changes.", inserted: 0, updated: 0, errors: [] };
+  }
+
+  const lines = csvText.trim().split("\n");
+  if (lines.length < 2) {
+    return { inserted: 0, updated: 0, errors: ["CSV has no data rows."] };
+  }
+
+  const dataLines = lines.slice(1);
+  const errors: string[] = [];
+  let inserted = 0;
+  let updated = 0;
+
+  const { db } = await import("@/lib/db");
+  const { masterLeis } = await import("@/db/schema");
+  const { eq, and } = await import("drizzle-orm");
+
+  for (let i = 0; i < dataLines.length; i++) {
+    const line = dataLines[i].trim();
+    if (!line) continue;
+
+    const cols = line.split(",").map((c) => c.trim());
+    const [name, unit_price, sources] = cols;
+
+    const parsed = CSVRowSchema.safeParse({ name, unit_price, sources });
+    if (!parsed.success) {
+      errors.push(`Row ${i + 2}: ${parsed.error.errors[0]?.message ?? "invalid"}`);
+      continue;
+    }
+
+    const sourcesArray = parsed.data.sources
+      ? parsed.data.sources
+          .split("|")
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+
+    try {
+      const existing = await db
+        .select({ id: masterLeis.id })
+        .from(masterLeis)
+        .where(
+          and(
+            eq(masterLeis.name, parsed.data.name),
+            eq(masterLeis.user_id, USER_ID)
+          )
+        )
+        .limit(1);
+
+      if (existing.length > 0) {
+        await db
+          .update(masterLeis)
+          .set({
+            unit_price: parsed.data.unit_price,
+            sources: sourcesArray,
+            updated_at: new Date(),
+          })
+          .where(eq(masterLeis.id, existing[0].id));
+        updated++;
+      } else {
+        await db.insert(masterLeis).values({
+          user_id: USER_ID,
+          name: parsed.data.name,
+          unit_price: parsed.data.unit_price,
+          sources: sourcesArray,
+        });
+        inserted++;
+      }
+    } catch (err) {
+      errors.push(`Row ${i + 2}: database error`);
+    }
+  }
+
+  revalidatePath("/catalog/leis");
+  return { inserted, updated, errors };
+}
