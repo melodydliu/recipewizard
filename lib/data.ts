@@ -232,6 +232,20 @@ export async function getEventHardGoods(eventId: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Service items
+// ---------------------------------------------------------------------------
+
+export async function getServiceItems(eventId: string) {
+  if (useMock) {
+    const store = readStore();
+    return (store.serviceItems ?? [])
+      .filter((i) => i.event_id === eventId)
+      .sort((a, b) => a.sort_order - b.sort_order);
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
 // Recipe items for an entire event
 // ---------------------------------------------------------------------------
 

@@ -8,6 +8,7 @@ import {
   getRecipeItemsForEvent,
   getFlowers,
   getMarkupSettings,
+  getServiceItems,
 } from "@/lib/data";
 import { calcArrangementPricing, fmtCurrency } from "@/lib/pricing";
 import { Badge } from "@/components/ui/badge";
@@ -55,6 +56,7 @@ export default async function EventDetailPage({ params }: PageProps) {
     allRecipeItems,
     flowers,
     markupSettings,
+    serviceItems,
   ] = await Promise.all([
     getEvent(id),
     getEventSections(id),
@@ -63,6 +65,7 @@ export default async function EventDetailPage({ params }: PageProps) {
     getRecipeItemsForEvent(id),
     getFlowers(false),
     getMarkupSettings(),
+    getServiceItems(id),
   ]);
 
   if (!event) notFound();
@@ -127,13 +130,29 @@ export default async function EventDetailPage({ params }: PageProps) {
         recipe_lines: lines,
         flower_markup: markupData.flower_markup,
         hard_good_markup: markupData.hard_good_markup,
+        is_repurposed: a.repurposed_from_arrangement_ids.length > 0,
       }).total_billed_retail
     );
   }, new Decimal(0));
 
-  const laborFee = arrangementSubtotal.times(new Decimal(markupSettings.labor_markup));
-  const cleanupFee = new Decimal(event.cleanup_fee ?? "0");
-  const serviceSubtotal = laborFee.plus(cleanupFee);
+  const isServicesHidden = (event as { services_hidden?: boolean }).services_hidden ?? false;
+  const laborFeeOverride = event.labor_fee_override ?? null;
+  const laborPctOverride = (event as { labor_pct_override?: string | null }).labor_pct_override ?? null;
+  const laborFeeCalculated = arrangementSubtotal.times(new Decimal(markupSettings.labor_markup));
+  const laborFee = laborFeeOverride !== null
+    ? new Decimal(laborFeeOverride)
+    : laborPctOverride !== null
+      ? arrangementSubtotal.times(new Decimal(laborPctOverride))
+      : laborFeeCalculated;
+  const serviceItemList = serviceItems.map((i) => ({
+    id: i.id, name: i.name, notes: i.notes ?? null,
+    price: i.price, sort_order: i.sort_order,
+    is_hidden: (i as { is_hidden?: boolean }).is_hidden ?? false,
+  }));
+  const customServiceTotal = serviceItemList
+    .filter((i) => !i.is_hidden)
+    .reduce((sum, item) => sum.plus(new Decimal(item.price || "0")), new Decimal(0));
+  const serviceSubtotal = isServicesHidden ? new Decimal(0) : laborFee.plus(customServiceTotal);
   const subtotal = arrangementSubtotal.plus(serviceSubtotal);
   const taxRate = new Decimal(event.tax_rate ?? "0");
   const tax = subtotal.times(taxRate);
@@ -142,12 +161,14 @@ export default async function EventDetailPage({ params }: PageProps) {
 
   const eventServices = {
     laborFee: fmtCurrency(laborFee),
-    laborFeeOverride: event.labor_fee_override ?? null,
-    laborFeeCalculated: fmtCurrency(arrangementSubtotal.times(new Decimal(markupSettings.labor_markup))),
-    cleanupFee: event.cleanup_fee ?? "0",
-    cleanupFeeDisplay: fmtCurrency(cleanupFee),
-    hasCleanup: cleanupFee.gt(0),
+    laborFeeOverride: laborFeeOverride,
+    laborFeeCalculated: fmtCurrency(laborFeeCalculated),
+    laborMarkupPct: new Decimal(markupSettings.labor_markup).times(100).toFixed(0),
+    laborPctOverride: laborPctOverride,
+    arrangementSubtotalRaw: arrangementSubtotal.toFixed(2),
     serviceSubtotal: fmtCurrency(serviceSubtotal),
+    isServicesHidden,
+    serviceItems: serviceItemList,
   };
 
   return (

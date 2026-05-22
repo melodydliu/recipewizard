@@ -11,7 +11,7 @@ import { ArrangementRow } from "./arrangement-row";
 import { RecipeEditorSheet } from "./recipe-editor-sheet";
 import { createArrangement } from "@/actions/arrangements";
 import { createSection, toggleSectionVisibility, duplicateSection, deleteSection } from "@/actions/sections";
-import { updateEventServiceFees } from "@/actions/events";
+import { updateEventServiceFees, toggleServicesVisibility } from "@/actions/events";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -19,6 +19,8 @@ import {
   DropdownMenuItem,
 } from "@/components/ui/dropdown-menu";
 import { calcArrangementPricing, fmtCurrency } from "@/lib/pricing";
+import { ServiceItemModal } from "./service-item-modal";
+import { createServiceItem, updateServiceItem, deleteServiceItem } from "@/actions/service-items";
 
 type RecipeItem = {
   id: string;
@@ -80,10 +82,12 @@ interface ArrangementsTabProps {
     laborFee: string;
     laborFeeOverride: string | null;
     laborFeeCalculated: string;
-    cleanupFee: string;
-    cleanupFeeDisplay: string;
-    hasCleanup: boolean;
     serviceSubtotal: string;
+    isServicesHidden: boolean;
+    laborMarkupPct: string;
+    laborPctOverride: string | null;
+    arrangementSubtotalRaw: string;
+    serviceItems: { id: string; name: string; notes: string | null; price: string; sort_order: number; is_hidden: boolean }[];
   };
 }
 
@@ -95,6 +99,7 @@ function SectionGroup({
   eventId,
   section,
   arrangements,
+  allArrangements,
   recipeItems,
   flowers,
   paletteColors,
@@ -104,6 +109,7 @@ function SectionGroup({
   eventId: string;
   section: Section | null;
   arrangements: Arrangement[];
+  allArrangements: Arrangement[];
   recipeItems: RecipeItem[];
   flowers: Flower[];
   paletteColors: PaletteColor[];
@@ -132,6 +138,7 @@ function SectionGroup({
       recipe_lines: lines,
       flower_markup: markupSettings.flower_markup,
       hard_good_markup: markupSettings.hard_good_markup,
+      is_repurposed: arr.repurposed_from_arrangement_ids.length > 0,
     });
     return sum.plus(pricing.total_billed_retail);
   }, new Decimal(0));
@@ -191,6 +198,7 @@ function SectionGroup({
           paletteColors={paletteColors}
           flowers={flowers}
           sections={sections}
+          otherArrangements={allArrangements.filter((a) => a.id !== arr.id).map((a) => ({ id: a.id, name: a.name }))}
           markupSettings={markupSettings}
           trigger={<span className="sr-only" />}
           open={openArrangementId === arr.id}
@@ -302,13 +310,67 @@ function ServicesCard({
   eventId: string;
   eventServices: ArrangementsTabProps["eventServices"];
 }) {
+  const [modalOpen, setModalOpen] = React.useState(false);
+  const [editingItem, setEditingItem] = React.useState<{ id: string; name: string; notes: string | null; price: string } | undefined>(undefined);
+  const [laborMode, setLaborMode] = React.useState<"pct" | "custom">(
+    eventServices.laborFeeOverride != null ? "custom" : "pct"
+  );
+  const [laborPctInput, setLaborPctInput] = React.useState(() => {
+    if (eventServices.laborPctOverride !== null) {
+      return (parseFloat(eventServices.laborPctOverride) * 100).toFixed(1).replace(/\.0$/, "");
+    }
+    return eventServices.laborMarkupPct;
+  });
   const [laborInput, setLaborInput] = React.useState(
     eventServices.laborFeeOverride != null
       ? eventServices.laborFeeOverride
       : eventServices.laborFeeCalculated.replace("$", "")
   );
-  const [cleanupInput, setCleanupInput] = React.useState(eventServices.cleanupFee);
   const [isPending, startTransition] = useTransition();
+
+  function switchLaborMode(mode: "pct" | "custom") {
+    setLaborMode(mode);
+    if (mode === "pct") {
+      startTransition(async () => {
+        await updateEventServiceFees(eventId, { labor_fee_override: null });
+      });
+    } else {
+      const pct = parseFloat(laborPctInput || "0") / 100;
+      const subTotal = parseFloat(eventServices.arrangementSubtotalRaw || "0");
+      const computed = (pct * subTotal).toFixed(2);
+      setLaborInput(computed);
+      startTransition(async () => {
+        await updateEventServiceFees(eventId, { labor_fee_override: computed, labor_pct_override: null });
+      });
+    }
+  }
+
+  function saveLaborPct() {
+    const val = parseFloat(laborPctInput);
+    if (isNaN(val) || val < 0) return;
+    const pctDecimal = (val / 100).toFixed(4);
+    const defaultDecimal = (parseFloat(eventServices.laborMarkupPct) / 100).toFixed(4);
+    const isDefault = Math.abs(parseFloat(pctDecimal) - parseFloat(defaultDecimal)) < 0.00005;
+    startTransition(async () => {
+      await updateEventServiceFees(eventId, {
+        labor_pct_override: isDefault ? null : pctDecimal,
+        labor_fee_override: null,
+      });
+    });
+  }
+
+  function handleToggleVisibility() {
+    startTransition(async () => {
+      await toggleServicesVisibility(eventId, !eventServices.isServicesHidden);
+    });
+  }
+
+  function handleDelete() {
+    startTransition(async () => {
+      await updateEventServiceFees(eventId, { cleanup_fee: "0", labor_fee_override: "0" });
+      await toggleServicesVisibility(eventId, true);
+    });
+  }
 
   function saveLabor() {
     const val = parseFloat(laborInput);
@@ -320,58 +382,163 @@ function ServicesCard({
     });
   }
 
-  function saveCleanup() {
-    const val = parseFloat(cleanupInput);
-    const fee = isNaN(val) ? "0.00" : Math.abs(val).toFixed(2);
-    setCleanupInput(fee);
-    startTransition(async () => {
-      await updateEventServiceFees(eventId, { cleanup_fee: fee });
-    });
-  }
-
-  const laborDisplay = `$${parseFloat(laborInput || "0").toFixed(2)}`;
-  const cleanupDisplay = `$${parseFloat(cleanupInput || "0").toFixed(2)}`;
-  const showCleanup = parseFloat(cleanupInput || "0") > 0;
-
   return (
-    <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+    <div className={`rounded-lg border bg-card overflow-hidden shadow-sm${eventServices.isServicesHidden ? " opacity-50" : ""}`}>
       <div className="flex items-center justify-between px-4 py-3 bg-muted/40 border-b">
         <span className="text-sm font-semibold">Services</span>
-        <span className="text-xs font-semibold text-muted-foreground tabular-nums">
-          {eventServices.serviceSubtotal}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-semibold text-muted-foreground tabular-nums">
+            {eventServices.serviceSubtotal}
+          </span>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="min-w-44 w-auto">
+              <DropdownMenuItem onClick={handleToggleVisibility}>
+                {eventServices.isServicesHidden
+                  ? <><Eye className="h-4 w-4 mr-2" />Show section</>
+                  : <><EyeOff className="h-4 w-4 mr-2" />Hide section</>}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => toast.info("Service fees cannot be duplicated.")}>
+                <Copy className="h-4 w-4 mr-2" />Duplicate section
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleDelete} variant="destructive">
+                <Trash2 className="h-4 w-4 mr-2" />Delete section
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
+      <ServiceItemModal
+        eventId={eventId}
+        item={editingItem}
+        open={modalOpen}
+        onOpenChange={(o) => { setModalOpen(o); if (!o) setEditingItem(undefined); }}
+      />
       <table className="w-full text-sm">
         <tbody>
-          <tr className="border-b">
-            <td className="px-4 py-2 text-muted-foreground w-full">Labor & Design</td>
-            <td className="px-4 py-2 text-right">
-              <input
-                type="number"
-                min={0}
-                step={0.01}
-                value={laborInput}
-                onChange={(e) => setLaborInput(e.target.value)}
-                onBlur={saveLabor}
-                disabled={isPending}
-                className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm text-right outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 tabular-nums disabled:opacity-50"
-                title={`Default: ${eventServices.laborFeeCalculated}`}
-              />
+          <tr className={eventServices.serviceItems.length > 0 ? "border-b" : ""}>
+            <td className="px-4 py-2 text-muted-foreground">Labor & Design</td>
+            <td colSpan={2} className="px-4 py-2 whitespace-nowrap w-px">
+              <div className="flex items-center justify-end gap-2">
+                <div className="flex rounded-md border border-input overflow-hidden text-xs">
+                  <button
+                    type="button"
+                    onClick={() => switchLaborMode("custom")}
+                    disabled={isPending}
+                    className={`px-2 py-1 transition-colors border-r border-input ${laborMode === "custom" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                  >$</button>
+                  <button
+                    type="button"
+                    onClick={() => switchLaborMode("pct")}
+                    disabled={isPending}
+                    className={`px-2 py-1 transition-colors ${laborMode === "pct" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                  >%</button>
+                </div>
+                {laborMode === "pct" ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.1}
+                      value={laborPctInput}
+                      onChange={(e) => setLaborPctInput(e.target.value)}
+                      onBlur={saveLaborPct}
+                      disabled={isPending}
+                      className="w-14 h-7 rounded-md border border-input bg-background px-2 text-sm text-right outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 tabular-nums disabled:opacity-50"
+                    />
+                    <span className="text-sm text-muted-foreground">%</span>
+                    <span className="text-sm tabular-nums text-muted-foreground">
+                      · ${(parseFloat(laborPctInput || "0") / 100 * parseFloat(eventServices.arrangementSubtotalRaw || "0")).toFixed(2)}
+                    </span>
+                  </div>
+                ) : (
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={laborInput}
+                    onChange={(e) => setLaborInput(e.target.value)}
+                    onBlur={saveLabor}
+                    disabled={isPending}
+                    className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm text-right outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 tabular-nums disabled:opacity-50"
+                  />
+                )}
+              </div>
             </td>
           </tr>
+          {eventServices.serviceItems.map((item, idx) => (
+            <tr
+              key={item.id}
+              onClick={() => { setEditingItem(item); setModalOpen(true); }}
+              className={`group cursor-pointer hover:bg-muted/30 transition-colors${idx < eventServices.serviceItems.length - 1 ? " border-b" : ""}${item.is_hidden ? " opacity-50" : ""}`}
+            >
+              <td className="px-4 py-2">
+                <div className="text-sm">{item.name}</div>
+                {item.notes && (
+                  <div className="text-xs text-muted-foreground mt-0.5">{item.notes}</div>
+                )}
+              </td>
+              <td className="px-4 py-2 text-right tabular-nums text-sm text-muted-foreground w-28">
+                ${parseFloat(item.price || "0").toFixed(2)}
+              </td>
+              <td className="pl-6 pr-4 py-2 w-px" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => startTransition(async () => {
+                      const result = await updateServiceItem(item.id, eventId, { is_hidden: !item.is_hidden });
+                      if (result && "error" in result) toast.error(result.error);
+                    })}
+                    className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded"
+                  >
+                    {item.is_hidden ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => startTransition(async () => {
+                      const result = await createServiceItem(eventId, { name: `${item.name} (copy)`, notes: item.notes, price: item.price });
+                      if (result && "error" in result) toast.error(result.error);
+                      else toast.success("Item duplicated.");
+                    })}
+                    className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="left" align="center">
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => startTransition(async () => {
+                          const result = await deleteServiceItem(item.id, eventId);
+                          if (result && "error" in result) toast.error(result.error);
+                        })}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />Delete item
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </td>
+            </tr>
+          ))}
           <tr>
-            <td className="px-4 py-2 text-muted-foreground">Cleanup Fee</td>
-            <td className="px-4 py-2 text-right">
-              <input
-                type="number"
-                min={0}
-                step={0.01}
-                value={cleanupInput}
-                onChange={(e) => setCleanupInput(e.target.value)}
-                onBlur={saveCleanup}
+            <td colSpan={3} className="px-4 py-2">
+              <button
+                type="button"
+                onClick={() => { setEditingItem(undefined); setModalOpen(true); }}
                 disabled={isPending}
-                className="w-24 h-7 rounded-md border border-input bg-background px-2 text-sm text-right outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 tabular-nums disabled:opacity-50"
-              />
+                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors py-0.5"
+              >
+                <Plus className="h-3 w-3" />
+                Add item
+              </button>
             </td>
           </tr>
         </tbody>
@@ -424,6 +591,7 @@ export function ArrangementsTab({
             eventId={eventId}
             section={section}
             arrangements={sectionArrangements}
+            allArrangements={arrangements}
             recipeItems={recipeItems}
             flowers={flowers}
             paletteColors={paletteColors}
@@ -438,6 +606,7 @@ export function ArrangementsTab({
           eventId={eventId}
           section={null}
           arrangements={uncategorized.sort((a, b) => a.sort_order - b.sort_order)}
+          allArrangements={arrangements}
           recipeItems={recipeItems}
           flowers={flowers}
           paletteColors={paletteColors}

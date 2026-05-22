@@ -87,6 +87,7 @@ interface RecipeEditorSheetProps {
     stems_per_bunch: number;
   }[];
   sections: { id: string; name: string }[];
+  otherArrangements: { id: string; name: string }[];
   markupSettings: { flower_markup: string; hard_good_markup: string };
   trigger: React.ReactNode;
   /** Controlled open state (optional — if omitted, the sheet manages its own open state) */
@@ -171,6 +172,7 @@ export function RecipeEditorSheet({
   paletteColors,
   flowers,
   sections,
+  otherArrangements,
   markupSettings,
   trigger,
   open: controlledOpen,
@@ -197,6 +199,12 @@ export function RecipeEditorSheet({
   );
   const [targetRetailPrice, setTargetRetailPrice] = React.useState(
     arrangement.target_retail_price_per_unit ?? ""
+  );
+  const [isRepurposed, setIsRepurposed] = React.useState(
+    arrangement.repurposed_from_arrangement_ids.length > 0
+  );
+  const [repurposedFromId, setRepurposedFromId] = React.useState(
+    arrangement.repurposed_from_arrangement_ids[0] ?? ""
   );
 
   // Recipe lines
@@ -302,6 +310,24 @@ export function RecipeEditorSheet({
     });
   }
 
+  function handleRepurposedToggle(checked: boolean) {
+    setIsRepurposed(checked);
+    if (!checked) {
+      setRepurposedFromId("");
+      startTransition(async () => {
+        await updateArrangement(arrangement.id, { repurposed_from_arrangement_ids: [] });
+      });
+    }
+  }
+
+  function handleRepurposedSourceChange(sourceId: string | null) {
+    if (!sourceId) return;
+    setRepurposedFromId(sourceId);
+    startTransition(async () => {
+      await updateArrangement(arrangement.id, { repurposed_from_arrangement_ids: [sourceId] });
+    });
+  }
+
   // Pricing summary
   const pricingInput = {
     quantity: parseInt(qty, 10) || 1,
@@ -313,6 +339,7 @@ export function RecipeEditorSheet({
     })),
     flower_markup: markupSettings.flower_markup,
     hard_good_markup: markupSettings.hard_good_markup,
+    is_repurposed: isRepurposed,
   };
   const pricing = calcArrangementPricing(pricingInput);
 
@@ -331,8 +358,6 @@ export function RecipeEditorSheet({
       />
     ),
   }));
-
-  const isRepurposed = arrangement.repurposed_from_arrangement_ids.length > 0;
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -408,16 +433,49 @@ export function RecipeEditorSheet({
             </div>
           </div>
 
+          {/* Repurposed toggle row */}
+          <div className="flex items-center gap-3 mt-2">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={isRepurposed}
+                onChange={(e) => handleRepurposedToggle(e.target.checked)}
+                disabled={isPending}
+                className="h-3.5 w-3.5 rounded border-input accent-primary"
+              />
+              <span className="text-xs text-muted-foreground">Repurposed from</span>
+            </label>
+            <Select
+              value={repurposedFromId}
+              onValueChange={handleRepurposedSourceChange}
+              disabled={!isRepurposed || isPending}
+            >
+              <SelectTrigger size="sm" className="w-56">
+                <SelectValue placeholder="Select source item…">
+                  {repurposedFromId
+                    ? otherArrangements.find((a) => a.id === repurposedFromId)?.name
+                    : undefined}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {otherArrangements.map((a) => (
+                  <SelectItem key={a.id} value={a.id}>
+                    {a.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
         </DialogHeader>
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
 
-        {/* Repurposed banner */}
+        {/* Repurposed notice */}
         {isRepurposed && (
-          <div className="mx-6 mt-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
-            This arrangement reuses flowers from source arrangements. Recipes
-            are managed in the source arrangement.
+          <div className="mx-6 mt-4 mb-4 rounded-lg bg-muted/60 border px-4 py-3 text-sm text-muted-foreground">
+            Flowers for this item are sourced from the repurposed arrangement — no additional cost.
           </div>
         )}
 

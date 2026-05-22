@@ -13,6 +13,7 @@ export type ArrangementPricingInput = {
   hard_goods_per_unit?: string; // sum of hard goods / qty — Phase 4 adds this; default "0"
   flower_markup: string;
   hard_good_markup: string;
+  is_repurposed?: boolean; // when true, flower wholesale cost is zero (stems come from source)
 };
 
 export type ArrangementPricingResult = {
@@ -31,7 +32,8 @@ export type ArrangementPricingResult = {
 export function calcArrangementPricing(
   input: ArrangementPricingInput
 ): ArrangementPricingResult {
-  const flowerWholesalePerUnit = input.recipe_lines.reduce((sum, line) => {
+  const lines = input.is_repurposed ? [] : input.recipe_lines;
+  const flowerWholesalePerUnit = lines.reduce((sum, line) => {
     const price = line.stem_price_override
       ? new Decimal(line.stem_price_override)
       : new Decimal(line.master_stem_price ?? "0");
@@ -51,9 +53,10 @@ export function calcArrangementPricing(
     Math.round(suggestedRetailPerUnit.toNumber() / 5) * 5
   );
 
-  const billedRetailPerUnit = input.target_retail_price_per_unit
-    ? new Decimal(input.target_retail_price_per_unit)
-    : new Decimal(0);
+  const billedRetailPerUnit =
+    input.is_repurposed || !input.target_retail_price_per_unit
+      ? new Decimal(0)
+      : new Decimal(input.target_retail_price_per_unit);
 
   const totalBilledRetail = billedRetailPerUnit.times(qty);
 

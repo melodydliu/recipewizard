@@ -87,6 +87,7 @@ export function ArrangementRow({
     recipe_lines: recipeLines,
     flower_markup: markupSettings.flower_markup,
     hard_good_markup: markupSettings.hard_good_markup,
+    is_repurposed: arrangement.repurposed_from_arrangement_ids.length > 0,
   });
 
   const isRepurposed = arrangement.repurposed_from_arrangement_ids.length > 0;
@@ -101,13 +102,13 @@ export function ArrangementRow({
         <div className="flex items-center gap-2">
           <span className="font-medium text-sm leading-snug">{arrangement.name}</span>
           {isRepurposed && (
-            <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[10px] font-medium">
               repurposed
             </span>
           )}
         </div>
         {arrangement.notes && (
-          <p className="text-xs text-muted-foreground mt-0.5 truncate max-w-xs">
+          <p className="text-xs text-muted-foreground mt-0.5 break-words">
             {arrangement.notes}
           </p>
         )}

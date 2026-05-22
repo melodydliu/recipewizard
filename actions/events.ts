@@ -139,9 +139,27 @@ export async function updateEventStatus(id: string, status: string) {
   return updateEvent(id, { status: validStatus });
 }
 
+export async function toggleServicesVisibility(eventId: string, isHidden: boolean) {
+  if (!process.env.DATABASE_URL) {
+    const { readStore, writeStore } = await import("@/lib/local-store");
+    const store = readStore();
+    store.eventFeeOverrides = store.eventFeeOverrides ?? {};
+    store.eventFeeOverrides[eventId] = {
+      ...store.eventFeeOverrides[eventId],
+      services_hidden: isHidden,
+    };
+    writeStore(store);
+    revalidatePath(`/events/${eventId}`);
+    return { success: true };
+  }
+
+  revalidatePath(`/events/${eventId}`);
+  return { success: true };
+}
+
 export async function updateEventServiceFees(
   eventId: string,
-  fees: { cleanup_fee?: string; labor_fee_override?: string | null }
+  fees: { cleanup_fee?: string; labor_fee_override?: string | null; labor_pct_override?: string | null }
 ) {
   if (!process.env.DATABASE_URL) {
     const { readStore, writeStore } = await import("@/lib/local-store");
