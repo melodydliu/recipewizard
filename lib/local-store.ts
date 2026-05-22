@@ -20,6 +20,7 @@ export type LocalSection = {
   event_id: string;
   name: string;
   sort_order: number;
+  is_hidden: boolean;
   created_at: string | Date;
   updated_at: string | Date;
 };
@@ -34,6 +35,7 @@ export type LocalArrangement = {
   notes: string | null;
   internal_notes: string | null;
   is_no_recipe: boolean;
+  is_hidden: boolean;
   repurposed_from_arrangement_ids: string[];
   sort_order: number;
   created_at: string | Date;

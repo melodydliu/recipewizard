@@ -152,6 +152,7 @@ export const eventSections = pgTable("event_sections", {
     .references(() => events.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   sort_order: integer("sort_order").notNull().default(0),
+  is_hidden: boolean("is_hidden").notNull().default(false),
   created_at: timestamp("created_at").default(sql`now()`),
   updated_at: timestamp("updated_at").default(sql`now()`),
 });
@@ -176,6 +177,7 @@ export const arrangements = pgTable("arrangements", {
   internal_notes: text("internal_notes"),
   sort_order: integer("sort_order").notNull().default(0),
   is_no_recipe: boolean("is_no_recipe").notNull().default(false),
+  is_hidden: boolean("is_hidden").notNull().default(false),
   repurposed_from_arrangement_ids: uuid("repurposed_from_arrangement_ids")
     .array()
     .notNull()

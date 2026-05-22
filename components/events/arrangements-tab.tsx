@@ -3,15 +3,21 @@
 import * as React from "react";
 import { useTransition } from "react";
 import { toast } from "sonner";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, MoreHorizontal, Eye, EyeOff, Copy, Trash2 } from "lucide-react";
 import Decimal from "decimal.js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input"; // used by add-section input
 import { ArrangementRow } from "./arrangement-row";
 import { RecipeEditorSheet } from "./recipe-editor-sheet";
 import { createArrangement } from "@/actions/arrangements";
-import { createSection } from "@/actions/sections";
+import { createSection, toggleSectionVisibility, duplicateSection, deleteSection } from "@/actions/sections";
 import { updateEventServiceFees } from "@/actions/events";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { calcArrangementPricing, fmtCurrency } from "@/lib/pricing";
 
 type RecipeItem = {
@@ -45,6 +51,7 @@ type Section = {
   id: string;
   name: string;
   sort_order: number;
+  is_hidden: boolean;
 };
 
 type Arrangement = {
@@ -56,6 +63,7 @@ type Arrangement = {
   notes: string | null;
   internal_notes: string | null;
   is_no_recipe: boolean;
+  is_hidden: boolean;
   repurposed_from_arrangement_ids: string[];
   sort_order: number;
 };
@@ -106,7 +114,7 @@ function SectionGroup({
   const [openArrangementId, setOpenArrangementId] = React.useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const subtotal = arrangements.reduce((sum, arr) => {
+  const subtotal = arrangements.filter((arr) => !arr.is_hidden).reduce((sum, arr) => {
     const items = recipeItems.filter((r) => r.arrangement_id === arr.id);
     const lines = items.map((item) => {
       const flower = item.master_flower_id
@@ -143,6 +151,33 @@ function SectionGroup({
   }
 
   const label = section?.name ?? "Uncategorized";
+  const isHidden = section?.is_hidden ?? false;
+
+  function handleToggleVisibility() {
+    if (!section) return;
+    startTransition(async () => {
+      const result = await toggleSectionVisibility(section.id, eventId, !isHidden);
+      if (result && "error" in result) toast.error(result.error);
+    });
+  }
+
+  function handleDuplicate() {
+    if (!section) return;
+    startTransition(async () => {
+      const result = await duplicateSection(section.id, eventId);
+      if (result && "error" in result) toast.error(result.error);
+      else toast.success("Section duplicated.");
+    });
+  }
+
+  function handleDelete() {
+    if (!section) return;
+    startTransition(async () => {
+      const result = await deleteSection(section.id, eventId);
+      if (result && "error" in result) toast.error(result.error);
+      else toast.success("Section deleted.");
+    });
+  }
 
   return (
     <>
@@ -164,7 +199,7 @@ function SectionGroup({
       ))}
 
       {/* Card */}
-      <div className="rounded-lg border bg-card overflow-hidden shadow-sm">
+      <div className={`rounded-lg border bg-card overflow-hidden shadow-sm${isHidden ? " opacity-50" : ""}`}>
 
         {/* Card header */}
         <div className="flex items-center justify-between px-4 py-3 bg-muted/40 border-b">
@@ -178,11 +213,35 @@ function SectionGroup({
               : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
             {label}
           </button>
-          {!subtotal.isZero() && (
-            <span className="tabular-nums text-xs font-semibold text-muted-foreground">
-              {fmtCurrency(subtotal)}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {!subtotal.isZero() && (
+              <span className="tabular-nums text-xs font-semibold text-muted-foreground">
+                {fmtCurrency(subtotal)}
+              </span>
+            )}
+            {section && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-44 w-auto">
+                  <DropdownMenuItem onClick={handleToggleVisibility}>
+                    {isHidden
+                      ? <><Eye className="h-4 w-4 mr-2" />Show section</>
+                      : <><EyeOff className="h-4 w-4 mr-2" />Hide section</>}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleDuplicate}>
+                    <Copy className="h-4 w-4 mr-2" />Duplicate section
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={handleDelete} variant="destructive">
+                    <Trash2 className="h-4 w-4 mr-2" />Delete section
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+          </div>
         </div>
 
         {/* Table */}
@@ -206,6 +265,7 @@ function SectionGroup({
                   flowers={flowers}
                   markupSettings={markupSettings}
                   onEdit={() => setOpenArrangementId(arr.id)}
+                  eventId={eventId}
                 />
               ))}
 

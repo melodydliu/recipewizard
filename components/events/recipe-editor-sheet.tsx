@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useTransition } from "react";
 import { toast } from "sonner";
-import { Trash2, Pencil } from "lucide-react";
+import { Trash2, Pencil, AlertTriangle } from "lucide-react";
 import Decimal from "decimal.js";
 import {
   Dialog,
@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Combobox } from "@/components/ui/combobox";
 import { calcArrangementPricing, fmtCurrency, fmtPct } from "@/lib/pricing";
-import { updateArrangement } from "@/actions/arrangements";
+import { updateArrangement, deleteArrangement } from "@/actions/arrangements";
 import {
   upsertRecipeItem,
   deleteRecipeItem,
@@ -183,6 +183,7 @@ export function RecipeEditorSheet({
     else setInternalOpen(val);
   }
   const [isPending, startTransition] = useTransition();
+  const [confirmingDelete, setConfirmingDelete] = React.useState(false);
 
   // Header fields
   const [arrName, setArrName] = React.useState(arrangement.name);
@@ -337,7 +338,7 @@ export function RecipeEditorSheet({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger render={trigger as React.ReactElement} />
       <DialogContent
-        className="min-w-[80vw] max-h-[90vh] flex flex-col gap-0 p-0 sm:max-w-[90vw]"
+        className="min-w-[80vw] h-[90vh] flex flex-col gap-0 p-0 sm:max-w-[90vw]"
       >
         {/* Header */}
         <DialogHeader className="shrink-0 px-6 py-4 border-b">
@@ -740,34 +741,82 @@ export function RecipeEditorSheet({
         </div>{/* end scrollable body */}
 
         {/* Footer */}
-        <div className="shrink-0 flex items-center justify-end gap-2 px-6 py-3 border-t bg-background">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setOpen(false)}
-          >
-            Close
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={isPending}
-            onClick={() => {
-              if (arrName !== arrangement.name) saveArrangementField("name", arrName);
-              const n = parseInt(qty, 10);
-              if (!isNaN(n) && n > 0 && n !== arrangement.quantity) saveArrangementField("quantity", n);
-              if (notes !== (arrangement.notes ?? "")) saveArrangementField("notes", notes);
-              if (internalNotes !== (arrangement.internal_notes ?? "")) saveArrangementField("internal_notes", internalNotes);
-              const priceVal = targetRetailPrice.trim() || null;
-              if (priceVal !== (arrangement.target_retail_price_per_unit ?? null)) {
-                saveArrangementField("target_retail_price_per_unit", priceVal as string);
-              }
-              setOpen(false);
-            }}
-          >
-            Save
-          </Button>
+        <div className="shrink-0 flex items-center justify-between gap-2 px-6 py-3 border-t bg-background">
+          {/* Delete — left side */}
+          {confirmingDelete ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-destructive font-medium">Delete this item?</span>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                disabled={isPending}
+                onClick={() => {
+                  startTransition(async () => {
+                    const result = await deleteArrangement(arrangement.id, eventId);
+                    if (result && "error" in result) {
+                      toast.error(result.error);
+                      setConfirmingDelete(false);
+                    } else {
+                      setOpen(false);
+                    }
+                  });
+                }}
+              >
+                Delete
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmingDelete(false)}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => setConfirmingDelete(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete item
+            </Button>
+          )}
+
+          {/* Right side */}
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => { setOpen(false); setConfirmingDelete(false); }}
+            >
+              Close
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={isPending}
+              onClick={() => {
+                if (arrName !== arrangement.name) saveArrangementField("name", arrName);
+                const n = parseInt(qty, 10);
+                if (!isNaN(n) && n > 0 && n !== arrangement.quantity) saveArrangementField("quantity", n);
+                if (notes !== (arrangement.notes ?? "")) saveArrangementField("notes", notes);
+                if (internalNotes !== (arrangement.internal_notes ?? "")) saveArrangementField("internal_notes", internalNotes);
+                const priceVal = targetRetailPrice.trim() || null;
+                if (priceVal !== (arrangement.target_retail_price_per_unit ?? null)) {
+                  saveArrangementField("target_retail_price_per_unit", priceVal as string);
+                }
+                setOpen(false);
+              }}
+            >
+              Save
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

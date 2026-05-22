@@ -1,8 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { Pencil } from "lucide-react";
+import { Trash2, Copy, Eye, EyeOff } from "lucide-react";
+import { useTransition } from "react";
+import { toast } from "sonner";
 import { calcArrangementPricing, fmtCurrency } from "@/lib/pricing";
+import { deleteArrangement, duplicateArrangement, updateArrangement } from "@/actions/arrangements";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 
 type RecipeItem = {
   id: string;
@@ -33,6 +42,7 @@ type Arrangement = {
   notes: string | null;
   internal_notes: string | null;
   is_no_recipe: boolean;
+  is_hidden: boolean;
   repurposed_from_arrangement_ids: string[];
   sort_order: number;
 };
@@ -43,6 +53,7 @@ interface ArrangementRowProps {
   flowers: Flower[];
   markupSettings: { flower_markup: string; hard_good_markup: string };
   onEdit: () => void;
+  eventId: string;
 }
 
 
@@ -52,7 +63,9 @@ export function ArrangementRow({
   flowers,
   markupSettings,
   onEdit,
+  eventId,
 }: ArrangementRowProps) {
+  const [isPending, startTransition] = useTransition();
   const itemsForArrangement = recipeItems.filter(
     (r) => r.arrangement_id === arrangement.id
   );
@@ -80,7 +93,7 @@ export function ArrangementRow({
 
   return (
     <tr
-      className="group hover:bg-muted/30 transition-colors border-b last:border-0 cursor-pointer"
+      className={`group hover:bg-muted/30 transition-colors border-b last:border-0 cursor-pointer ${arrangement.is_hidden ? "opacity-40" : ""}`}
       onClick={onEdit}
     >
       {/* Name */}
@@ -121,10 +134,54 @@ export function ArrangementRow({
           : fmtCurrency(pricing.total_billed_retail)}
       </td>
 
-      {/* Edit icon */}
-      <td className="px-4 py-3 w-16">
-        <div className="flex items-center justify-end">
-          <Pencil className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+      {/* Actions */}
+      <td className="pl-6 pr-4 py-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => startTransition(async () => {
+              await updateArrangement(arrangement.id, { is_hidden: !arrangement.is_hidden });
+            })}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded disabled:opacity-50"
+            title={arrangement.is_hidden ? "Show item" : "Hide item"}
+          >
+            {arrangement.is_hidden
+              ? <Eye className="h-3.5 w-3.5" />
+              : <EyeOff className="h-3.5 w-3.5" />}
+          </button>
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => startTransition(async () => {
+              const result = await duplicateArrangement(arrangement.id, eventId);
+              if (result && "error" in result) toast.error(result.error);
+            })}
+            className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded disabled:opacity-50"
+            title="Duplicate item"
+          >
+            <Copy className="h-3.5 w-3.5" />
+          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              disabled={isPending}
+              className="text-muted-foreground hover:text-destructive transition-colors p-1 rounded disabled:opacity-50"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent side="left" align="center">
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                onClick={() => startTransition(async () => {
+                  const result = await deleteArrangement(arrangement.id, eventId);
+                  if (result && "error" in result) toast.error(result.error);
+                })}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete item
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </td>
     </tr>

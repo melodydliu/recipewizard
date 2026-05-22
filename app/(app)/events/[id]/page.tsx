@@ -79,7 +79,7 @@ export default async function EventDetailPage({ params }: PageProps) {
   }));
 
   const sectionList = sections.map((s) => ({
-    id: s.id, name: s.name, sort_order: s.sort_order,
+    id: s.id, name: s.name, sort_order: s.sort_order, is_hidden: (s as { is_hidden?: boolean }).is_hidden ?? false,
   }));
 
   const arrangementList = arrangements.map((a) => ({
@@ -89,6 +89,7 @@ export default async function EventDetailPage({ params }: PageProps) {
     notes: a.notes ?? null,
     internal_notes: a.internal_notes ?? null,
     is_no_recipe: a.is_no_recipe,
+    is_hidden: a.is_hidden ?? false,
     repurposed_from_arrangement_ids: a.repurposed_from_arrangement_ids ?? [],
     sort_order: a.sort_order,
   }));
@@ -110,7 +111,8 @@ export default async function EventDetailPage({ params }: PageProps) {
   };
 
   // --- Event totals ---
-  const arrangementSubtotal = arrangementList.reduce((sum, a) => {
+  const hiddenSectionIds = new Set(sectionList.filter((s) => s.is_hidden).map((s) => s.id));
+  const arrangementSubtotal = arrangementList.filter((a) => !a.is_hidden && !hiddenSectionIds.has(a.section_id ?? "")).reduce((sum, a) => {
     const lines = recipeItemList
       .filter((r) => r.arrangement_id === a.id)
       .map((r) => ({
